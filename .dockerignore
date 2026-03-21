@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.db
+docker-compose.yml
+.dockerignore
+# Exclude APK from image — host it separately or add via fly volume
+app/static/parentpilot.apk

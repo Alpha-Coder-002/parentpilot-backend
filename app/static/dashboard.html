@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ParentPilot</title>
+<script src="/static/socket.io.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+/* ── Normal (status) mode ─────────────────────────────── */
+body {
+  font-family: -apple-system, sans-serif;
+  background: #f5f5f5;
+  overflow-y: auto;
+}
+#status-page { padding: 16px; }
+h1 { font-size: 22px; font-weight: 700; margin-bottom: 16px; color: #1a1a1a; }
+.card {
+  background: white; border-radius: 12px; padding: 16px 20px;
+  margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.label { font-size: 15px; font-weight: 600; color: #333; }
+.chip { font-size: 14px; font-weight: 600; padding: 6px 14px; border-radius: 20px; display: flex; align-items: center; gap: 6px; }
+.online  { background: #e8f5e9; color: #2e7d32; }
+.offline { background: #ffebee; color: #c62828; }
+.ok      { background: #f5f5f5; color: #333; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-green { background: #4caf50; }
+.dot-gray  { background: #9e9e9e; }
+.waiting { background: #fff3e0; color: #e65100; font-size: 14px; text-align: center; padding: 14px; border-radius: 12px; margin-bottom: 12px; }
+#btn-view {
+  width: 100%; padding: 14px; font-size: 16px; font-weight: 600;
+  background: #1565c0; color: white; border: none; border-radius: 12px;
+  cursor: pointer; margin-bottom: 12px;
+}
+#debug-status { font-size: 11px; color: #e65100; text-align: center; font-family: monospace; min-height: 16px; margin-top: 8px; }
+
+/* ── Viewing mode — full-screen overlay ──────────────── */
+#view-page {
+  display: none;
+  position: fixed; inset: 0;
+  background: #000;
+  flex-direction: column;
+  z-index: 100;
+}
+
+#view-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  flex-shrink: 0;
+}
+#view-header span { color: #fff; font-size: 13px; font-family: monospace; flex: 1; }
+#btn-stop {
+  padding: 8px 18px; font-size: 14px; font-weight: 600;
+  background: #c62828; color: white; border: none; border-radius: 8px;
+  cursor: pointer; flex-shrink: 0;
+}
+
+/* Screen image fills all available vertical space */
+#screen-wrap {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+#screen-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+  user-select: none;
+}
+#tap-dot {
+  position: absolute; width: 28px; height: 28px; border-radius: 50%;
+  background: rgba(255,140,0,0.85); border: 2px solid #fff;
+  pointer-events: none; transform: translate(-50%,-50%); display: none;
+  box-shadow: 0 0 8px rgba(255,140,0,0.6);
+}
+
+/* Nav bar — always at bottom of view-page */
+#nav-bar {
+  display: flex; flex-direction: row; gap: 6px;
+  padding: 8px 12px;
+  background: #1a1a1a;
+  flex-shrink: 0;
+}
+#nav-bar button {
+  flex: 1; padding: 12px 0; font-size: 22px; border: none;
+  border-radius: 10px; background: #333; color: white;
+  cursor: pointer; transition: background 0.1s;
+}
+#nav-bar button:active { background: #555; }
+</style>
+</head>
+<body>
+
+<!-- ── Status / normal view ─────────────────────────── -->
+<div id="status-page">
+  <h1>ParentPilot</h1>
+
+  <div class="card">
+    <span class="label">Parent Status</span>
+    <span id="status-chip" class="chip offline"><span class="dot dot-gray"></span>Offline</span>
+  </div>
+
+  <div id="battery-card" class="card" style="display:none">
+    <span class="label">Battery</span>
+    <span id="battery-chip" class="chip ok">--</span>
+  </div>
+
+  <div id="network-card" class="card" style="display:none">
+    <span class="label">Network</span>
+    <span id="network-chip" class="chip ok">--</span>
+  </div>
+
+  <div id="waiting" class="waiting">Waiting for parent device to connect...</div>
+
+  <button id="btn-view" onclick="startScreenView()">📺 View Parent Screen</button>
+
+  <div id="debug-status"></div>
+</div>
+
+<!-- ── Viewing mode full-screen ──────────────────────── -->
+<div id="view-page">
+  <div id="view-header">
+    <span id="frame-info">frames: 0</span>
+    <button id="btn-stop" onclick="stopScreenView()">⏹ Stop</button>
+  </div>
+  <div id="screen-wrap">
+    <img id="screen-img" src="" alt="Parent screen" draggable="false" />
+    <div id="tap-dot"></div>
+  </div>
+  <div id="nav-bar">
+    <button onclick="sendKey('back')" title="Back">◀</button>
+    <button onclick="sendKey('home')" title="Home">⬤</button>
+    <button onclick="sendKey('recents')" title="Recents">▣</button>
+  </div>
+</div>
+
+<script>
+const SERVER = window.location.origin;
+const socket = io(SERVER, { transports: ['websocket', 'polling'], reconnection: true });
+
+// ── Helpers ───────────────────────────────────────────
+function setOnline(on) {
+  const chip = document.getElementById('status-chip');
+  chip.className = 'chip ' + (on ? 'online' : 'offline');
+  chip.innerHTML = '<span class="dot ' + (on ? 'dot-green' : 'dot-gray') + '"></span>' + (on ? 'Online' : 'Offline');
+}
+function setDebug(msg) {
+  document.getElementById('debug-status').textContent = msg;
+}
+
+// ── Socket status ─────────────────────────────────────
+// "connect" just means our own browser socket is up — keep parent status Offline
+// until we actually receive a status event from the parent app.
+let parentOnlineTimer = null;
+function markParentOnline() {
+  setOnline(true);
+  clearTimeout(parentOnlineTimer);
+  // If no update for 60s, mark parent offline
+  parentOnlineTimer = setTimeout(() => setOnline(false), 60000);
+}
+
+socket.on('connect',    () => {});  // do NOT mark parent Online here
+socket.on('disconnect', () => { setOnline(false); stopScreenView(); });
+
+socket.on('status:battery', (d) => {
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('battery-card').style.display = 'flex';
+  const color = d.level > 50 ? '#4caf50' : d.level > 20 ? '#ff9800' : '#f44336';
+  const chip = document.getElementById('battery-chip');
+  chip.style.color = color;
+  chip.textContent = d.level + '%' + (d.isCharging ? ' ⚡' : '');
+  markParentOnline();
+});
+
+socket.on('status:network', (d) => {
+  document.getElementById('waiting').style.display = 'none';
+  document.getElementById('network-card').style.display = 'flex';
+  const color = d.type === 'wifi' ? '#4caf50' : d.type === 'mobile' ? '#ff9800' : '#f44336';
+  document.getElementById('network-chip').style.color = color;
+  document.getElementById('network-chip').textContent =
+    d.type + (d.strength != null ? ' ' + '|'.repeat(Math.min(d.strength + 1, 5)) : '');
+  markParentOnline();
+});
+
+socket.on('sos:triggered', () => {
+  if (confirm('🚨 SOS ALERT\nYour parent triggered an emergency!\n\nTap OK to acknowledge.')) {
+    socket.emit('sos:acknowledged', {});
+  }
+});
+
+socket.on('debug:status', (d) => {
+  setDebug('Android: ' + (d.msg || JSON.stringify(d)));
+});
+
+// ── Screen Viewer ─────────────────────────────────────
+let viewing = false;
+let screenW = 1080, screenH = 1920;
+let frameCount = 0;
+
+function startScreenView() {
+  viewing = true;
+  frameCount = 0;
+  document.getElementById('frame-info').textContent = 'frames: 0 — waiting...';
+  socket.emit('screen:view:start', {});
+  document.getElementById('status-page').style.display = 'none';
+  const vp = document.getElementById('view-page');
+  vp.style.display = 'flex';
+}
+
+function stopScreenView() {
+  if (!viewing) return;
+  viewing = false;
+  socket.emit('screen:view:stop', {});
+  document.getElementById('view-page').style.display = 'none';
+  document.getElementById('status-page').style.display = 'block';
+  document.getElementById('screen-img').src = '';
+}
+
+socket.on('screen:frame', (data) => {
+  if (!viewing) return;
+  if (data.w) screenW = data.w;
+  if (data.h) screenH = data.h;
+  frameCount++;
+  const kb = data.frame ? Math.round(data.frame.length * 0.75 / 1024) : 0;
+  document.getElementById('frame-info').textContent =
+    'frames: ' + frameCount + ' | ' + kb + ' KB | ' + screenW + '×' + screenH;
+  document.getElementById('screen-img').src = 'data:image/jpeg;base64,' + data.frame;
+});
+
+// ── Remote Control ────────────────────────────────────
+
+// Returns the actual pixel area where the image content is rendered,
+// accounting for object-fit: contain letterboxing inside the <img> element.
+function getImgContentRect() {
+  const img = document.getElementById('screen-img');
+  const rect = img.getBoundingClientRect();
+  const nw = img.naturalWidth  || rect.width;
+  const nh = img.naturalHeight || rect.height;
+  // Scale that makes the image fit inside the element while keeping aspect ratio
+  const scale = Math.min(rect.width / nw, rect.height / nh);
+  const cW = nw * scale;
+  const cH = nh * scale;
+  // Letterbox offsets (empty space on the short sides)
+  const ox = (rect.width  - cW) / 2;
+  const oy = (rect.height - cH) / 2;
+  return { left: rect.left + ox, top: rect.top + oy, width: cW, height: cH };
+}
+
+function imgCoords(clientX, clientY) {
+  const cr = getImgContentRect();
+  const relX = (clientX - cr.left) / cr.width;
+  const relY = (clientY - cr.top)  / cr.height;
+  return {
+    x: Math.round(Math.max(0, Math.min(1, relX)) * screenW),
+    y: Math.round(Math.max(0, Math.min(1, relY)) * screenH),
+  };
+}
+
+function showTapDot(clientX, clientY) {
+  const wrap = document.getElementById('screen-wrap');
+  const wrapRect = wrap.getBoundingClientRect();
+  const dot = document.getElementById('tap-dot');
+  dot.style.left = (clientX - wrapRect.left) + 'px';
+  dot.style.top  = (clientY - wrapRect.top)  + 'px';
+  dot.style.display = 'block';
+  setTimeout(() => { dot.style.display = 'none'; }, 400);
+}
+
+// Touch (mobile)
+let touchStartX, touchStartY, touchStartCX, touchStartCY;
+
+document.getElementById('screen-img').addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  const t = e.touches[0];
+  touchStartCX = t.clientX; touchStartCY = t.clientY;
+  const c = imgCoords(t.clientX, t.clientY);
+  touchStartX = c.x; touchStartY = c.y;
+}, { passive: false });
+
+document.getElementById('screen-img').addEventListener('touchend', (e) => {
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  const c = imgCoords(t.clientX, t.clientY);
+  const dx = t.clientX - touchStartCX;
+  const dy = t.clientY - touchStartCY;
+
+  if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+    showTapDot(t.clientX, t.clientY);
+    socket.emit('command:tap', { x: c.x, y: c.y });
+    setDebug('tap sent → ' + c.x + ',' + c.y);
+  } else {
+    socket.emit('command:swipe', { startX: touchStartX, startY: touchStartY, endX: c.x, endY: c.y });
+    setDebug('swipe sent');
+  }
+}, { passive: false });
+
+// Mouse (desktop)
+let mouseDown = false, mouseSX, mouseSY, mouseSCX, mouseSCY;
+
+document.getElementById('screen-img').addEventListener('mousedown', (e) => {
+  mouseDown = true;
+  mouseSCX = e.clientX; mouseSCY = e.clientY;
+  const c = imgCoords(e.clientX, e.clientY);
+  mouseSX = c.x; mouseSY = c.y;
+});
+
+document.getElementById('screen-img').addEventListener('mouseup', (e) => {
+  if (!mouseDown) return;
+  mouseDown = false;
+  const c = imgCoords(e.clientX, e.clientY);
+  const dx = e.clientX - mouseSCX;
+  const dy = e.clientY - mouseSCY;
+
+  if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+    showTapDot(e.clientX, e.clientY);
+    socket.emit('command:tap', { x: c.x, y: c.y });
+    setDebug('tap sent → ' + c.x + ',' + c.y);
+  } else {
+    socket.emit('command:swipe', { startX: mouseSX, startY: mouseSY, endX: c.x, endY: c.y });
+    setDebug('swipe sent');
+  }
+});
+
+function sendKey(key) {
+  socket.emit('command:keyevent', { key });
+  setDebug('key: ' + key);
+}
+</script>
+</body>
+</html>
