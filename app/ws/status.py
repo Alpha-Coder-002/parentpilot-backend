@@ -193,9 +193,12 @@ async def on_screen_frame(sid: str, data: dict):
 @sio.on("command:tap")
 async def on_command_tap(sid: str, data: dict):
     user_id = _socket_users.get(sid)
+    logger.info(f"[TAP] from sid={sid} user={user_id} data={data} all_sockets={list(_socket_users.keys())}")
     if not user_id:
         return
-    for recipient in await _get_recipients(sid, user_id):
+    recipients = await _get_recipients(sid, user_id)
+    logger.info(f"[TAP] forwarding to recipients={recipients}")
+    for recipient in recipients:
         await sio.emit("command:tap", data, to=recipient)
 
 
