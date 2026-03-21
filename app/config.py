@@ -3,8 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://parentpilot:parentpilot@localhost:5432/parentpilot"
-    REDIS_URL: str = "redis://localhost:6379"
+    DATABASE_URL: str = "sqlite+aiosqlite:///./parentpilot.db"
+    REDIS_URL: str = "fake://"
     JWT_SECRET: str = "dev-secret-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_EXPIRE_HOURS: int = 24
