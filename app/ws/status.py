@@ -169,6 +169,7 @@ async def on_sos(sid: str, data: dict):
 @sio.on("screen:view:start")
 async def on_screen_view_start(sid: str, data: dict):
     user_id = _socket_users.get(sid)
+    print(f"[VIEW:START] from sid={sid} user={user_id} all_sockets={list(_socket_users.keys())}", flush=True)
     if not user_id:
         return
     for recipient in await _get_recipients(sid, user_id):
