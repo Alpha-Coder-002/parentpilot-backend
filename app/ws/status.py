@@ -81,6 +81,10 @@ async def connect(sid: str, environ: dict, auth: dict | None = None):
 async def disconnect(sid: str):
     user_id = _socket_users.pop(sid, None)
     if user_id:
+        # Stop screen streaming on remaining clients when anyone disconnects
+        for other_sid in list(_socket_users.keys()):
+            await sio.emit("screen:view:stop", {}, to=other_sid)
+
         _user_sockets.pop(user_id, None)
         if user_id.startswith("dev:"):
             logger.info(f"[WS] disconnected sid={sid}")
