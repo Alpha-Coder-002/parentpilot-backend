@@ -73,7 +73,7 @@ async def connect(sid: str, environ: dict, auth: dict | None = None):
                 redis = await _get_redis()
                 await redis.setex(f"online:{device.id}", 60, "1")
 
-    logger.info(f"[WS] connected user={user_id} sid={sid}")
+    print(f"[WS] connected user={user_id} sid={sid}", flush=True)
 
 
 @sio.event
@@ -193,11 +193,11 @@ async def on_screen_frame(sid: str, data: dict):
 @sio.on("command:tap")
 async def on_command_tap(sid: str, data: dict):
     user_id = _socket_users.get(sid)
-    logger.info(f"[TAP] from sid={sid} user={user_id} data={data} all_sockets={list(_socket_users.keys())}")
+    print(f"[TAP] from sid={sid} user={user_id} data={data} all_sockets={list(_socket_users.keys())}", flush=True)
     if not user_id:
         return
     recipients = await _get_recipients(sid, user_id)
-    logger.info(f"[TAP] forwarding to recipients={recipients}")
+    print(f"[TAP] forwarding to recipients={recipients}", flush=True)
     for recipient in recipients:
         await sio.emit("command:tap", data, to=recipient)
 
