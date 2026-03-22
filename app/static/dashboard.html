@@ -131,6 +131,7 @@ h1 { font-size: 22px; font-weight: 700; margin-bottom: 16px; color: #1a1a1a; }
 <div id="view-page">
   <div id="view-header">
     <span id="frame-info">frames: 0</span>
+    <span id="view-debug" style="color:#ff9800;font-size:11px;flex:1;text-align:right;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;"></span>
     <button id="btn-stop" onclick="stopScreenView()">⏹ Stop</button>
   </div>
   <div id="screen-wrap">
@@ -156,6 +157,7 @@ function setOnline(on) {
 }
 function setDebug(msg) {
   document.getElementById('debug-status').textContent = msg;
+  document.getElementById('view-debug').textContent = msg;
 }
 
 // ── Socket status ─────────────────────────────────────
