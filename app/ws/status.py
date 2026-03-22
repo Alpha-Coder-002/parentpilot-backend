@@ -76,6 +76,11 @@ async def connect(sid: str, environ: dict, auth: dict | None = None):
     print(f"[WS] connected user={user_id} sid={sid}", flush=True)
 
 
+@sio.on('*')
+async def any_event(event, sid, data):
+    print(f"[EVENT] {event} from sid={sid} data={str(data)[:100]}", flush=True)
+
+
 @sio.event
 async def disconnect(sid: str):
     user_id = _socket_users.pop(sid, None)
