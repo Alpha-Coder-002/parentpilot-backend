@@ -209,6 +209,7 @@ let viewing = false;
 let screenW = 1080, screenH = 1920;
 let frameCount = 0;
 
+let noFrameTimer = null;
 function startScreenView() {
   viewing = true;
   frameCount = 0;
@@ -217,10 +218,14 @@ function startScreenView() {
   document.getElementById('status-page').style.display = 'none';
   const vp = document.getElementById('view-page');
   vp.style.display = 'flex';
+  noFrameTimer = setTimeout(() => {
+    if (frameCount === 0) setDebug('No frames — ask parent to reopen ParentPilot app');
+  }, 8000);
 }
 
 function stopScreenView() {
   if (!viewing) return;
+  clearTimeout(noFrameTimer);
   viewing = false;
   socket.emit('screen:view:stop', {});
   document.getElementById('view-page').style.display = 'none';
